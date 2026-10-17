@@ -135,6 +135,7 @@ set(SHADER_FILES
   shaders/hapke.glsl
   shaders/interpolate_fs.glsl
   shaders/interpolate_vs.glsl
+  shaders/limbdarkening.glsl
   shaders/localrenderer_vs.glsl
   shaders/renderer_fs.glsl
   shaders/rings_fs.glsl

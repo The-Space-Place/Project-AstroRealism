@@ -275,6 +275,15 @@ private:
 
     PropertyOwner _hapkePropertyOwner;
 
+    // Limb darkening. If enabled, it replaces the Oren-Nayar diffuse term (unless the
+    // Hapke model is also enabled, which then takes precedence)
+    struct {
+        BoolProperty enabled;
+        FloatProperty a3;  // Coefficient of the (1 - cos(psi))^3 term
+    } _limbDarkeningProperties;
+
+    PropertyOwner _limbDarkeningPropertyOwner;
+
     Ellipsoid _ellipsoid;
     SkirtedGrid _grid;
     LayerManager _layerManager;

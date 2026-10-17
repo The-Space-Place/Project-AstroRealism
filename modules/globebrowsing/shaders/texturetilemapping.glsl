@@ -28,6 +28,7 @@
 #include "tile.glsl"
 #include "blending.glsl"
 #include "hapke.glsl"
+#include "limbdarkening.glsl"
 
 // First layer type from LayerShaderManager is height map
 #define NUMLAYERS_HEIGHTMAP #{lastLayerIndexHeightLayers} + 1
@@ -61,6 +62,7 @@
 #define USE_ACCURATE_NORMALS #{useAccurateNormals}
 #define PERFORM_SHADING #{performShading}
 #define USE_HAPKE #{useHapke}
+#define USE_LIMB_DARKENING #{useLimbDarkening}
 #define USE_ECLIPSE_SHADOWS #{useEclipseShadows}
 #define USE_ECLIPSE_HARD_SHADOWS #{useEclipseHardShadows}
 #define SHOW_CHUNK_EDGES #{showChunkEdges}
@@ -407,6 +409,11 @@ vec4 calculateShadedColor(vec4 currentColor, vec3 ellipsoidNormalCameraSpace,
 
   // Artistic exposure control, 1.0 leaves the Hapke result unchanged
   power *= hapkeExposure;
+#elif USE_LIMB_DARKENING
+  // Limb darkening replacing the Oren-Nayar diffuse term. The viewDirectionCameraSpace
+  // points from the camera to the surface, so it is flipped to get cos(psi) = N . V. The
+  // unlit side is still handled by the terminator smoothstep below
+  float power = limbDarkeningFactor(dot(n, -viewDirectionCameraSpace));
 #else // USE_HAPKE
   float power = orenNayarDiffuse(-lightDirectionCameraSpace, viewDirectionCameraSpace,
     ellipsoidNormalCameraSpace, roughness);

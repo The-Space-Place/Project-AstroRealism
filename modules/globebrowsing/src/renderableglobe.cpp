@@ -357,6 +357,24 @@ namespace {
         Property::Visibility::User
     };
 
+    constexpr Property::PropertyInfo LimbDarkeningEnabledInfo = {
+        "Enabled",
+        "Enabled",
+        "If enabled, limb darkening, I(psi) / I(0) = 1 - 0.47 (1 - cos psi) - 0.23 "
+        "(1 - cos psi)^2 + A_3 (1 - cos psi)^3 with cos psi = N . V, is used for the "
+        "shading of the globe instead of the Oren-Nayar diffuse model. Requires that "
+        "shading is performed. If the Hapke model is also enabled, it takes precedence.",
+        Property::Visibility::User
+    };
+
+    constexpr Property::PropertyInfo LimbDarkeningA3Info = {
+        "A3",
+        "Cubic coefficient (A_3)",
+        "The coefficient A_3 of the (1 - cos psi)^3 term of the limb darkening. 0 "
+        "leaves only the two fixed terms.",
+        Property::Visibility::User
+    };
+
     constexpr Property::PropertyInfo NActiveLayersInfo = {
         "NActiveLayers",
         "Number of active layers",
@@ -739,6 +757,15 @@ namespace {
             std::optional<bool> normalizeToStandardGeometry;
         };
         std::optional<Hapke> hapke;
+
+        // The parameters for the limb darkening. All values are optional. Specifying this
+        // table enables the limb darkening, which then replaces the Oren-Nayar diffuse
+        // shading of the globe (the Hapke model takes precedence if it is also enabled).
+        struct LimbDarkening {
+            // [[codegen::verbatim(LimbDarkeningA3Info.description)]]
+            std::optional<float> a3;
+        };
+        std::optional<LimbDarkening> limbDarkening;
     };
 } // namespace
 #include "renderableglobe_codegen.cpp"
@@ -802,6 +829,11 @@ RenderableGlobe::RenderableGlobe(const Dictionary& dictionary)
         FloatProperty(HapkeExposureInfo, 1.f, 0.f, 20.f)
     })
     , _hapkePropertyOwner({ "Hapke", "Hapke" })
+    , _limbDarkeningProperties({
+        BoolProperty(LimbDarkeningEnabledInfo, false),
+        FloatProperty(LimbDarkeningA3Info, 0.f, -2.f, 2.f)
+    })
+    , _limbDarkeningPropertyOwner({ "LimbDarkening", "Limb Darkening" })
     , _grid(DefaultSkirtedGridSegments, DefaultSkirtedGridSegments)
     , _leftRoot(Chunk(LeftHemisphereIndex))
     , _rightRoot(Chunk(RightHemisphereIndex))
@@ -937,6 +969,16 @@ RenderableGlobe::RenderableGlobe(const Dictionary& dictionary)
     _hapkePropertyOwner.addProperty(_hapkeProperties.exposure);
     addPropertySubOwner(_hapkePropertyOwner);
 
+    if (p.limbDarkening.has_value()) {
+        const Parameters::LimbDarkening& ld = *p.limbDarkening;
+        // Specifying the table enables the limb darkening
+        _limbDarkeningProperties.enabled = true;
+        _limbDarkeningProperties.a3 = ld.a3.value_or(_limbDarkeningProperties.a3);
+    }
+    _limbDarkeningPropertyOwner.addProperty(_limbDarkeningProperties.enabled);
+    _limbDarkeningPropertyOwner.addProperty(_limbDarkeningProperties.a3);
+    addPropertySubOwner(_limbDarkeningPropertyOwner);
+
     _nActiveLayers.setReadOnly(true);
     addProperty(_nActiveLayers);
 
@@ -960,6 +1002,7 @@ RenderableGlobe::RenderableGlobe(const Dictionary& dictionary)
     _eclipseHardShadows.onChange(notifyShaderRecompilation);
     _performShading.onChange(notifyShaderRecompilation);
     _hapkeProperties.enabled.onChange(notifyShaderRecompilation);
+    _limbDarkeningProperties.enabled.onChange(notifyShaderRecompilation);
     _debugProperties.showChunkEdges.onChange(notifyShaderRecompilation);
     _shadowMappingProperties.shadowMapping.onChange(notifyShaderRecompilation);
 
@@ -1390,6 +1433,19 @@ void RenderableGlobe::renderChunks(const RenderData& data, bool renderGeomOnly) 
                 prog->setUniform("hapke.phi", _hapkeProperties.phi.value());
                 prog->setUniform("hapkeNormalize", normalize);
                 prog->setUniform("hapkeExposure", _hapkeProperties.exposure.value());
+                prog->setIgnoreUniformLocationError(IgnoreError::No);
+            }
+        }
+
+        if (_limbDarkeningProperties.enabled) {
+            // The uniform might have been optimized away if the shader has not yet been
+            // recompiled with the limb darkening enabled
+            using IgnoreError = opengl::ProgramObject::IgnoreError;
+            for (opengl::ProgramObject* prog :
+                 { _localRenderer.program.get(), _globalRenderer.program.get() })
+            {
+                prog->setIgnoreUniformLocationError(IgnoreError::Yes);
+                prog->setUniform("limbDarkeningA3", _limbDarkeningProperties.a3.value());
                 prog->setIgnoreUniformLocationError(IgnoreError::No);
             }
         }
@@ -2094,6 +2150,10 @@ void RenderableGlobe::recompileShaders() {
     pairs.emplace_back(
         "useHapke",
         std::to_string(_performShading && _hapkeProperties.enabled)
+    );
+    pairs.emplace_back(
+        "useLimbDarkening",
+        std::to_string(_performShading && _limbDarkeningProperties.enabled)
     );
     pairs.emplace_back("useEclipseShadows", std::to_string(_eclipseShadowsEnabled));
     pairs.emplace_back("useEclipseHardShadows", std::to_string(_eclipseHardShadows));
